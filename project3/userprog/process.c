@@ -23,37 +23,63 @@
 
 #include <log.h>
 
+typedef struct cmd_token_info{
+    uint32_t number_tokens;
+    uint32_t number_chars;
+    char token_array[512];
+    uint32_t token_index[512];
+} cmd_token_info;
+
 static thread_func start_process NO_RETURN;
-static bool load(const char *cmdline, void(**eip) (void), void **esp);
+static bool load(const cmd_token_info *cur_cmd_info, void(**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
  * FILENAME.  The new thread may be scheduled (and may even exit)
  * before process_execute() returns.  Returns the new process's
  * thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute(const char *file_name)
+process_execute(const char *cmd_string)
 {
-    char *fn_copy;
     tid_t tid;
+
+    cmd_token_info* cur_cmd_info;
+    char current_char = cmd_string[0];
+    uint32_t char_count = 0;
+    uint32_t token_count = 1;
 
     // NOTE:
     // To see this print, make sure LOGGING_LEVEL in this file is <= L_TRACE (6)
     // AND LOGGING_ENABLE = 1 in lib/log.h
     // Also, probably won't pass with logging enabled.
-    log(L_TRACE, "Started process execute: %s", file_name);
+    log(L_TRACE, "Started process execute: %s", cmd_string);
 
     /* Make a copy of FILE_NAME.
      * Otherwise there's a race between the caller and load(). */
-    fn_copy = palloc_get_page(0);
-    if (fn_copy == NULL) {
+    cur_cmd_info = palloc_get_page(0);
+    if (cur_cmd_info == NULL) {
         return TID_ERROR;
     }
-    strlcpy(fn_copy, file_name, PGSIZE);
+
+    // THL - Parse the string and tokenize it
+    while(current_char != 0x00){ 
+        current_char = cmd_string[char_count];
+        if(current_char == 0x20){
+            token_count++;
+            cur_cmd_info->token_array[char_count] = 0x00;
+            cur_cmd_info->token_index[token_count - 1] = char_count+1;
+        } else {
+            cur_cmd_info->token_array[char_count] = current_char;
+        }
+        char_count++;
+    }
+    cur_cmd_info->number_chars = char_count;
+    cur_cmd_info->number_tokens = token_count;
+    // THL - Done
 
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+    tid = thread_create(cmd_string, PRI_DEFAULT, start_process, cur_cmd_info);
     if (tid == TID_ERROR) {
-        palloc_free_page(fn_copy);
+        palloc_free_page(cur_cmd_info);
     }
     return tid;
 }
@@ -61,9 +87,8 @@ process_execute(const char *file_name)
 /* A thread function that loads a user process and starts it
  * running. */
 static void
-start_process(void *file_name_)
+start_process(void *cur_cmd_info)
 {
-    char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
 
@@ -74,10 +99,10 @@ start_process(void *file_name_)
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
-    success = load(file_name, &if_.eip, &if_.esp);
+    success = load(cur_cmd_info, &if_.eip, &if_.esp);
 
     /* If load failed, quit. */
-    palloc_free_page(file_name);
+    palloc_free_page(cur_cmd_info);
     if (!success) {
         thread_exit();
     }
@@ -104,7 +129,9 @@ start_process(void *file_name_)
 int
 process_wait(tid_t child_tid UNUSED)
 {
-    return -1;
+    //Must wait for process to complete and reap its exit status
+    //return -1;
+    while(1);
 }
 
 /* Free the current process's resources. */
@@ -208,7 +235,7 @@ struct Elf32_Phdr {
 #define PF_W 2 /* Writable. */
 #define PF_R 4 /* Readable. */
 
-static bool setup_stack(void **esp);
+static bool setup_stack(void **esp, const cmd_token_info *cur_cmd_info);
 
 static bool validate_segment(const struct Elf32_Phdr *, struct file *);
 static bool load_segment(struct file *file, off_t ofs, uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable);
@@ -218,7 +245,7 @@ static bool load_segment(struct file *file, off_t ofs, uint8_t *upage, uint32_t 
  * and its initial stack pointer into *ESP.
  * Returns true if successful, false otherwise. */
 bool
-load(const char *file_name, void(**eip) (void), void **esp)
+load(const cmd_token_info *cur_cmd_info, void(**eip) (void), void **esp)
 {
     log(L_TRACE, "load()");
     struct thread *t = thread_current();
@@ -236,9 +263,9 @@ load(const char *file_name, void(**eip) (void), void **esp)
     process_activate();
 
     /* Open executable file. */
-    file = filesys_open(file_name);
+    file = filesys_open(cur_cmd_info->token_array);
     if (file == NULL) {
-        printf("load: %s: open failed\n", file_name);
+        printf("load: %s: open failed\n", cur_cmd_info->token_array);
         goto done;
     }
 
@@ -250,7 +277,7 @@ load(const char *file_name, void(**eip) (void), void **esp)
         || ehdr.e_version != 1
         || ehdr.e_phentsize != sizeof(struct Elf32_Phdr)
         || ehdr.e_phnum > 1024) {
-        printf("load: %s: error loading executable\n", file_name);
+        printf("load: %s: error loading executable\n", cur_cmd_info->token_array);
         goto done;
     }
 
@@ -311,7 +338,7 @@ load(const char *file_name, void(**eip) (void), void **esp)
     }
 
     /* Set up stack. */
-    if (!setup_stack(esp)) {
+    if (!setup_stack(esp, cur_cmd_info)) {
         goto done;
     }
 
@@ -445,10 +472,11 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
  * user virtual memory. */
 static bool
-setup_stack(void **esp)
+setup_stack(void **esp, const cmd_token_info *cur_cmd_info)
 {
     uint8_t *kpage;
     bool success = false;
+    uint8_t* argv_ptr;
 
     log(L_TRACE, "setup_stack()");
 
@@ -457,6 +485,32 @@ setup_stack(void **esp)
         success = install_page(((uint8_t *)PHYS_BASE) - PGSIZE, kpage, true);
         if (success) {
             *esp = PHYS_BASE;
+            argv_ptr = (uint8_t) *esp;
+            // THL - Code to populate stack goes here
+                //Copy arguments to stack and decrement
+            memcpy(*esp - cur_cmd_info->number_chars, cur_cmd_info->token_array, cur_cmd_info->number_chars);
+            *esp -= cur_cmd_info->number_chars;
+            *esp -= cur_cmd_info->number_chars % 4;
+            *esp -= 4;
+            *((uint32_t*) *esp) = 0;
+                //Add ptr to argv entries
+            uint32_t token_length = 0;
+            for(uint32_t i = cur_cmd_info->number_tokens; i >= 1; i--){
+                token_length = strlen(&cur_cmd_info->token_array[cur_cmd_info->token_index[i-1]]) + 1;
+                *esp -= 4;
+                *((uint32_t*) *esp) = argv_ptr - token_length;
+                argv_ptr -= token_length;
+            }
+                //Add ptr to argv[0]
+            *((uint32_t*) (*esp-4)) = *esp;
+            *esp -= 4;
+                //Add argc
+            *esp -= 4;
+            *((uint32_t*) *esp) = cur_cmd_info->number_tokens;
+                //Add return location
+            *esp -= 4;
+            *((uint32_t*) *esp) = 0;
+
         } else {
             palloc_free_page(kpage);
         }
