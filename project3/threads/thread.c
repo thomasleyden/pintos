@@ -213,6 +213,9 @@ thread_create(const char *name, int priority,
     sf->eip = switch_entry;
     sf->ebp = 0;
 
+    /* Initilize exit semaphore */
+    sema_init(&t->exit_block, 0);
+    
     /* Add to run queue. */
     thread_unblock(t);
 
@@ -593,6 +596,20 @@ allocate_tid(void)
     lock_release(&tid_lock);
 
     return tid;
+}
+
+uint32_t get_thread_tcb(tid_t tid, struct thread** pp_thread){
+    struct list_elem *e;
+
+    for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e)){
+        *pp_thread = list_entry (e, struct thread, allelem);
+        //printf("HERE tid = %u %u\n", (*pp_thread)->tid, tid);
+        if((*pp_thread)->tid == tid){
+            return 1;
+        }
+    }
+    printf("Can't find thread tcb\n");
+    return -1;
 }
 
 /* Offset of `stack' member within `struct thread'.

@@ -77,7 +77,7 @@ process_execute(const char *cmd_string)
     // THL - Done
 
     /* Create a new thread to execute FILE_NAME. */
-    tid = thread_create(cmd_string, PRI_DEFAULT, start_process, cur_cmd_info);
+    tid = thread_create(&cur_cmd_info->token_array[0], PRI_DEFAULT, start_process, cur_cmd_info);
     if (tid == TID_ERROR) {
         palloc_free_page(cur_cmd_info);
     }
@@ -131,7 +131,17 @@ process_wait(tid_t child_tid UNUSED)
 {
     //Must wait for process to complete and reap its exit status
     //return -1;
-    while(1);
+    //while(1);
+
+    // THL - Block on the semaphore associated with tid
+    struct thread* child_tcb = NULL;
+    if(get_thread_tcb(child_tid, &child_tcb) != 1){
+        return -1;
+    }
+
+    sema_down(&child_tcb->exit_block);
+
+
 }
 
 /* Free the current process's resources. */
@@ -476,7 +486,7 @@ setup_stack(void **esp, const cmd_token_info *cur_cmd_info)
 {
     uint8_t *kpage;
     bool success = false;
-    uint8_t* argv_ptr;
+    uint32_t* argv_ptr;
 
     log(L_TRACE, "setup_stack()");
 
@@ -485,7 +495,7 @@ setup_stack(void **esp, const cmd_token_info *cur_cmd_info)
         success = install_page(((uint8_t *)PHYS_BASE) - PGSIZE, kpage, true);
         if (success) {
             *esp = PHYS_BASE;
-            argv_ptr = (uint8_t) *esp;
+            argv_ptr = (uint32_t) *esp;
             // THL - Code to populate stack goes here
                 //Copy arguments to stack and decrement
             memcpy(*esp - cur_cmd_info->number_chars, cur_cmd_info->token_array, cur_cmd_info->number_chars);
@@ -498,8 +508,8 @@ setup_stack(void **esp, const cmd_token_info *cur_cmd_info)
             for(uint32_t i = cur_cmd_info->number_tokens; i >= 1; i--){
                 token_length = strlen(&cur_cmd_info->token_array[cur_cmd_info->token_index[i-1]]) + 1;
                 *esp -= 4;
-                *((uint32_t*) *esp) = argv_ptr - token_length;
-                argv_ptr -= token_length;
+                *((uint32_t*) *esp) = (uint8_t*) argv_ptr - token_length;
+                argv_ptr = (uint8_t*) argv_ptr - token_length;
             }
                 //Add ptr to argv[0]
             *((uint32_t*) (*esp-4)) = *esp;
