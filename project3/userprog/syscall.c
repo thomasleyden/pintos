@@ -13,6 +13,12 @@ syscall_init(void)
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
+uint32_t sys_exec (const char *cmd_line);
+void sys_halt (void);
+int sys_write (int fd, char *buffer, unsigned size);
+void sys_exit(int status);
+
+
 static void
 syscall_handler(struct intr_frame *f UNUSED)
 {
@@ -25,16 +31,54 @@ syscall_handler(struct intr_frame *f UNUSED)
     uint32_t arg3 = *(usp+4);;
 
     switch(call_no) {
-        case SYS_EXIT:
-            sys_exit(arg0);
-            break;
         case SYS_HALT:
             sys_halt();
             break;
-        case SYS_WRITE :
+        case SYS_EXIT:
+            sys_exit(arg0);
+            break;
+        case SYS_EXEC:
+            f->eax = sys_exec((char*) arg0);
+            break;
+        case SYS_WAIT:
+            break;
+        case SYS_CREATE:
+            break;
+        case SYS_REMOVE:
+            break;
+        case SYS_OPEN:
+            break;
+        case SYS_FILESIZE:
+            break;
+        case SYS_READ:
+            break;
+        case SYS_WRITE:
             f->eax = sys_write((int) arg0, (char*) arg1, (unsigned) arg2);
             break;
+        case SYS_SEEK:
+            break;
+        case SYS_TELL:
+            break;
+        case SYS_CLOSE:
+            break;
     }
+}
+
+uint32_t sys_exec (const char *cmd_line){
+    /*
+    System Call: pid_t exec (const char *cmd_line)
+
+        Runs the executable whose name is given in cmd_line, passing any given arguments, and returns
+        the new process's program id (pid). Must return pid -1, which otherwise should not be a valid pid,
+        if the program cannot load or run for any reason. Thus, the parent process cannot return from the
+        exec until it knows whether the child process successfully loaded its executable. You must use appropriate
+        synchronization to ensure this.
+    */
+   if(cmd_line == NULL){
+       return -1;
+   }
+   return process_execute(cmd_line);
+
 }
 
 void sys_halt (void){
@@ -69,6 +113,7 @@ int sys_write (int fd, char *buffer, unsigned size) {
        putbuf(buffer, size);
        return size;
    }
+   return -1;
 
 }
 
@@ -83,7 +128,8 @@ void sys_exit(int status){
    struct thread *cur = thread_current();
    printf("%s: exit(%d)\n", cur->name, status);
    cur->exit_status = status;
-   sema_up(&cur->exit_block);
+   sema_up(&cur->exit_block_child);
+   sema_down(&cur->exit_block_parent);
    thread_exit();
 
 }

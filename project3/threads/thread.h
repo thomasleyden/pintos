@@ -96,8 +96,12 @@ struct thread {
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir; /* Page directory. */
+
     int exit_status;     //Holds exit status of a thread as a child so my parent can reap it
-    struct semaphore exit_block;
+    struct semaphore exit_block_child;
+    struct semaphore exit_block_parent;
+
+    tid_t parent_pid;
 #endif
 
     /* Owned by thread.c. */

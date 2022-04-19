@@ -129,9 +129,7 @@ start_process(void *cur_cmd_info)
 int
 process_wait(tid_t child_tid UNUSED)
 {
-    //Must wait for process to complete and reap its exit status
-    //return -1;
-    //while(1);
+    uint32_t exit_status;
 
     // THL - Block on the semaphore associated with tid
     struct thread* child_tcb = NULL;
@@ -139,7 +137,13 @@ process_wait(tid_t child_tid UNUSED)
         return -1;
     }
 
-    sema_down(&child_tcb->exit_block);
+    sema_down(&child_tcb->exit_block_child);
+    sema_up(&child_tcb->exit_block_parent);
+
+    exit_status = child_tcb->exit_status;
+
+    return exit_status;
+
 
 
 }
