@@ -214,8 +214,9 @@ thread_create(const char *name, int priority,
     sf->ebp = 0;
 
     /* Initilize exit semaphore */
-    sema_init(&t->exit_block_child, 0);
-    sema_init(&t->exit_block_parent, 0);
+    sema_init(&t->exit_block_on_child, 0);
+    sema_init(&t->exit_block_on_parent, 0);
+    sema_init(&t->exec_wait_on_child, 0);
     
     /* Add to run queue. */
     thread_unblock(t);

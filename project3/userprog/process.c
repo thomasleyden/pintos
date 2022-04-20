@@ -18,6 +18,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "userprog/tss.h"
+#include "filesys/file.h"
 
 #define LOGGING_LEVEL 6
 
@@ -41,11 +42,13 @@ tid_t
 process_execute(const char *cmd_string)
 {
     tid_t tid;
+    tid_t parent_tid = thread_current()->tid;
 
     cmd_token_info* cur_cmd_info;
     char current_char = cmd_string[0];
     uint32_t char_count = 0;
     uint32_t token_count = 1;
+    struct thread *child_thread;
 
     // NOTE:
     // To see this print, make sure LOGGING_LEVEL in this file is <= L_TRACE (6)
@@ -55,7 +58,7 @@ process_execute(const char *cmd_string)
 
     /* Make a copy of FILE_NAME.
      * Otherwise there's a race between the caller and load(). */
-    cur_cmd_info = palloc_get_page(0);
+    cur_cmd_info = palloc_get_page(PAL_ZERO);
     if (cur_cmd_info == NULL) {
         return TID_ERROR;
     }
@@ -81,6 +84,9 @@ process_execute(const char *cmd_string)
     if (tid == TID_ERROR) {
         palloc_free_page(cur_cmd_info);
     }
+    get_thread_tcb(tid, &child_thread);
+    child_thread->pcb.parent_tid = parent_tid;
+
     return tid;
 }
 
@@ -137,10 +143,12 @@ process_wait(tid_t child_tid UNUSED)
         return -1;
     }
 
-    sema_down(&child_tcb->exit_block_child);
-    sema_up(&child_tcb->exit_block_parent);
+    //Block until child tells us he have the exit status!
+    sema_down(&child_tcb->exit_block_on_parent);
 
     exit_status = child_tcb->exit_status;
+    //We got the exit status. Child can not cleanup
+    sema_up(&child_tcb->exit_block_on_child);
 
     return exit_status;
 

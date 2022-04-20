@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "synch.h"
+#include "userprog/process.h"
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -98,10 +99,15 @@ struct thread {
     uint32_t *pagedir; /* Page directory. */
 
     int exit_status;     //Holds exit status of a thread as a child so my parent can reap it
-    struct semaphore exit_block_child;
-    struct semaphore exit_block_parent;
 
-    tid_t parent_pid;
+    //Blocking the kernel from making exit status before thread exits correctly
+    struct semaphore exit_block_on_child;
+    struct semaphore exit_block_on_parent;
+
+    process_control_block pcb;
+
+    //Blocking the parent user process for child to finish
+    struct semaphore exec_wait_on_child;
 #endif
 
     /* Owned by thread.c. */
