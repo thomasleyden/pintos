@@ -19,7 +19,7 @@
 #endif
 
 static void syscall_handler(struct intr_frame *);
-static struct semaphore file_lock;
+static struct lock file_lock;
 static void aquire_fs_lock(void);
 static void release_fs_lock(void);
 static int valid_pointer(void* provided_pointer);
@@ -38,14 +38,18 @@ bool sys_remove(const char *file);
 void syscall_init(void)
 {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
-    sema_init(&file_lock, 0);
+    lock_init(&file_lock);
 }
 
 static void
 syscall_handler(struct intr_frame *f UNUSED)
 {
+    //Make sure stack pointer is valid
+    if(!valid_pointer(f->esp)){
+         sys_exit(-1);
+    }
+    //Before using the args, will need to check they are all below 0xC0000000
     uint32_t *usp = f->esp;
-
     int call_no = *usp;
     int arg0 = *(usp+1);
     int arg1 = *(usp+2);;
@@ -57,27 +61,53 @@ syscall_handler(struct intr_frame *f UNUSED)
             sys_halt();
             break;
         case SYS_EXIT:
+            if(!valid_arg(usp+1)){
+                sys_exit(-1);
+            }
             sys_exit(arg0);
             break;
         case SYS_EXEC:
+            if(!valid_pointer(arg0) || !valid_arg(usp+1)){
+                sys_exit(-1);
+            }
             f->eax = sys_exec((char*) arg0);
             break;
         case SYS_WAIT:
             break;
         case SYS_CREATE:
+            if(!valid_pointer(arg0) || !valid_arg(usp+2)){
+                sys_exit(-1);
+            }
             f->eax = sys_create((char *) arg0, (int) arg1);
             break;
         case SYS_REMOVE:
+            if(!valid_pointer(arg0) || !valid_arg(usp+1)){
+                sys_exit(-1);
+            }
             f->eax = sys_remove((char *) arg0);
             break;
         case SYS_OPEN:
+            if(!valid_pointer(arg0) || !valid_arg(usp+1)){
+                sys_exit(-1);
+            }
             f->eax = sys_open((char*) arg0);
             break;
         case SYS_FILESIZE:
+            if(!valid_arg(usp+1)){
+                sys_exit(-1);
+            }
+            f->eax = sys_filesize((int) arg0);
             break;
         case SYS_READ:
+            if(!valid_pointer(arg1) || !valid_arg(usp+3)){
+                sys_exit(-1);
+            }
+            f->eax = sys_read((int) arg0, (char*) arg1, (unsigned) arg2);
             break;
         case SYS_WRITE:
+            if(!valid_pointer(arg1) || !valid_arg(usp+3)){
+                sys_exit(-1);
+            }
             f->eax = sys_write((int) arg0, (char*) arg1, (unsigned) arg2);
             break;
         case SYS_SEEK:
@@ -143,6 +173,9 @@ int sys_exec (const char *cmd_line){
    process_tid = process_execute(cmd_line);
    //Wait on the child process to down your semaphore
    sema_down(&thread_current()->exec_wait_on_child);
+   if(thread_current()->pcb.child_exec_fail == 1){
+       return -1;
+   }
    return process_tid;
 
 }
@@ -228,11 +261,25 @@ int sys_open(const char *file){
         When a single file is opened more than once, whether by a single process or different processes,
         each open returns a new file descriptor. Different file descriptors for a single file are closed independently in separate calls to close and they do not share a file position.
     */
-   if(!valid_pointer((void *) file)){
-       sys_exit(-1);
-   }
+    struct file* file_opened;
+    int file_descriptor_opened;
 
-   return((int) filesys_open(file));
+    if(!valid_pointer((void *) file)){
+        sys_exit(-1);
+    }
+
+    //Open the file
+    file_opened = filesys_open(file);
+    if(file_opened == NULL){
+        return -1;
+    }
+    //Place file into PCB
+    file_descriptor_opened = thread_current()->pcb.number_open_files + 2;
+    thread_current()->pcb.file_descriptor_table[file_descriptor_opened] = file_opened;
+    thread_current()->pcb.number_open_files++;
+
+    //printf("sys_open returning fd %i\n", file_descriptor_opened);
+    return(file_descriptor_opened);
 }
 
 bool sys_create(const char *file, unsigned initial_size){
@@ -263,27 +310,73 @@ bool sys_remove(const char *file){
     return(filesys_remove(file));
 }
 
+int sys_read(int fd, void *buffer, unsigned size){
+    /*
+    System Call: int read (int fd, void *buffer, unsigned size)
+
+        Reads size bytes from the file open as fd into buffer. Returns the number of bytes actually read (0 at end of file), or -1
+        if the file could not be read (due to a condition other than end of file). Fd 0 reads from the keyboard using input_getc().
+    */
+    struct file* read_file;
+    int bytes_read = 0;
+    printf("sys_read %i\n", fd);
+    //Reading from a file from sys_open()
+    if(fd > 0 && fd < MAX_NUMBER_OF_FILES_IN_PROCESS){
+        read_file = thread_current()->pcb.file_descriptor_table[fd];
+        if(read_file == NULL){
+             return -1;
+        }
+        //("sys_read %i\n", bytes_read);
+        bytes_read = file_read(read_file, buffer, size);
+        //printf("sys_read %i\n", bytes_read);
+    } else {
+        return -1;
+    }
+
+    return bytes_read;
+}
+
+int sys_filesize(int fd){
+    /*
+    System Call: int filesize (int fd)
+
+    Returns the size, in bytes, of the file open as fd.
+    */
+
+    struct file* read_file;
+    read_file = thread_current()->pcb.file_descriptor_table[fd];
+    if(read_file == NULL){
+            return -1;
+    }
+    return(file_length(read_file));
+}
+
 void aquire_fs_lock(void){
-    sema_up(&file_lock);
+    lock_acquire(&file_lock);
 }
 void release_fs_lock(void){
-    sema_down(&file_lock);
+    lock_release(&file_lock);
 }
 
 int valid_pointer(void* provided_pointer){
     if(provided_pointer == NULL){
-        _DEBUG_PRINTF("Invalid Ptr %p\n", provided_pointer);
         return 0;
     }
-
+    //if(provided_pointer > PHYS_BASE || provided_pointer < 0x08084000){
     if(provided_pointer > PHYS_BASE){
-        _DEBUG_PRINTF("Invalid Ptr %p\n", provided_pointer);
         return 0;
     }
     if(get_user((uint8_t*) provided_pointer) == -1){
-        _DEBUG_PRINTF("Invalid Ptr %p\n", provided_pointer);
         return 0;
     }
+    return 1;
+}
+
+int valid_arg(void* arg_address){
+    if(arg_address >= 0xC0000000){
+        return 0;
+    }
+    return 1;
 }
 
 /* Reads a byte at user virtual address UADDR.

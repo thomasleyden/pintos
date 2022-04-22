@@ -97,6 +97,7 @@ start_process(void *cur_cmd_info)
 {
     struct intr_frame if_;
     bool success;
+    struct thread *par;
 
     log(L_TRACE, "start_process()");
 
@@ -110,6 +111,12 @@ start_process(void *cur_cmd_info)
     /* If load failed, quit. */
     palloc_free_page(cur_cmd_info);
     if (!success) {
+        //Clear the parent semaphore because we didn't load right
+        if(thread_current()->pcb.parent_tid != 1){
+            get_thread_tcb(thread_current()->pcb.parent_tid, &par);
+            par->pcb.child_exec_fail = 1;
+            sema_up(&(par->exec_wait_on_child));
+        } 
         thread_exit();
     }
 

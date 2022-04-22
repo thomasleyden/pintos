@@ -3,12 +3,19 @@
 
 #include "threads/thread.h"
 
+#define MAX_NUMBER_OF_FILES_IN_PROCESS 50
+
 typedef int tid_t;
+
+
 
 typedef struct process_control_block{
     tid_t tid;
     tid_t parent_tid;
-    struct file* file_descriptor_table[50];
+    int child_exec_fail;
+    struct file* file_descriptor_table[MAX_NUMBER_OF_FILES_IN_PROCESS];
+    //Will contain the number of open files. 0 will mean that index 0 1 are used (stdin/out)
+    int number_open_files;
 } process_control_block;
 
 tid_t process_execute(const char *file_name);
