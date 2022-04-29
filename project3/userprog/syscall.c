@@ -237,11 +237,25 @@ int sys_write (int fd, char *buffer, unsigned size) {
         both human readers and our grading scripts.
     */
 
+   struct file* write_file;
+   int bytes_write;
+
    if(fd == 1){
        putbuf(buffer, size);
        return size;
+   } else {
+       //Make sure fd is valid
+       write_file = thread_current()->pcb.file_descriptor_table[fd];
+       if(write_file == NULL){
+             return -1;
+        }
+       //Write to the fd
+       aquire_fs_lock();
+       bytes_write = file_write(write_file, buffer, size);
+       release_fs_lock();
+       //Return write size
    }
-   return -1;
+   return bytes_write;
 
 }
 
@@ -269,7 +283,9 @@ int sys_open(const char *file){
     }
 
     //Open the file
+    aquire_fs_lock();
     file_opened = filesys_open(file);
+    release_fs_lock();
     if(file_opened == NULL){
         return -1;
     }
@@ -289,11 +305,14 @@ bool sys_create(const char *file, unsigned initial_size){
         otherwise. Creating a new file does not open it: opening the new file is a separate operation which would
         require a open system call. 
     */
-   if(!valid_pointer((void *) file)){
-       sys_exit(-1);
-   }
-
-   return(filesys_create(file, initial_size));
+    bool file_created = false;
+    if(!valid_pointer((void *) file)){
+        sys_exit(-1);
+    }
+    aquire_fs_lock();
+    file_created = filesys_create(file, initial_size);
+    release_fs_lock();
+    return(file_created);
 }
 
 bool sys_remove(const char *file){
@@ -302,12 +321,14 @@ bool sys_remove(const char *file){
         Deletes the file called file. Returns true if successful, false otherwise. A file may be removed regardless of
         whether it is open or closed, and removing an open file does not close it. See Removing an Open File, for details. 
     */
-
+    bool file_removed = false;
     if(!valid_pointer((void *) file)){
         sys_exit(-1);
     }
-
-    return(filesys_remove(file));
+    aquire_fs_lock();
+    file_removed = filesys_remove(file);
+    release_fs_lock();
+    return(file_removed);
 }
 
 int sys_read(int fd, void *buffer, unsigned size){
@@ -319,7 +340,7 @@ int sys_read(int fd, void *buffer, unsigned size){
     */
     struct file* read_file;
     int bytes_read = 0;
-    printf("sys_read %i\n", fd);
+    //printf("sys_read %i\n", fd);
     //Reading from a file from sys_open()
     if(fd > 0 && fd < MAX_NUMBER_OF_FILES_IN_PROCESS){
         read_file = thread_current()->pcb.file_descriptor_table[fd];
@@ -327,7 +348,9 @@ int sys_read(int fd, void *buffer, unsigned size){
              return -1;
         }
         //("sys_read %i\n", bytes_read);
+        aquire_fs_lock();
         bytes_read = file_read(read_file, buffer, size);
+        release_fs_lock();
         //printf("sys_read %i\n", bytes_read);
     } else {
         return -1;
@@ -342,13 +365,17 @@ int sys_filesize(int fd){
 
     Returns the size, in bytes, of the file open as fd.
     */
+    uint32_t f_length = 0;
 
     struct file* read_file;
     read_file = thread_current()->pcb.file_descriptor_table[fd];
     if(read_file == NULL){
             return -1;
     }
-    return(file_length(read_file));
+    aquire_fs_lock();
+    f_length = file_length(read_file);
+    release_fs_lock();
+    return(f_length);
 }
 
 void aquire_fs_lock(void){

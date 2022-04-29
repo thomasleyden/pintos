@@ -46,6 +46,7 @@ process_execute(const char *cmd_string)
 
     cmd_token_info* cur_cmd_info;
     char current_char = cmd_string[0];
+    char previous_char = (char) 0;
     uint32_t char_count = 0;
     uint32_t token_count = 1;
     struct thread *child_thread;
@@ -66,14 +67,19 @@ process_execute(const char *cmd_string)
     // THL - Parse the string and tokenize it
     while(current_char != 0x00){ 
         current_char = cmd_string[char_count];
-        if(current_char == 0x20){
+        if(current_char == 0x20){ //Space Character
+            if(previous_char == 0x20){
+                goto skipchar;
+            }
             token_count++;
             cur_cmd_info->token_array[char_count] = 0x00;
             cur_cmd_info->token_index[token_count - 1] = char_count+1;
         } else {
             cur_cmd_info->token_array[char_count] = current_char;
         }
+        skipchar:
         char_count++;
+        previous_char = current_char;
     }
     cur_cmd_info->number_chars = char_count;
     cur_cmd_info->number_tokens = token_count;
