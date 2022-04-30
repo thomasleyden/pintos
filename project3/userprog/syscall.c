@@ -23,8 +23,9 @@ static struct lock file_lock;
 static void aquire_fs_lock(void);
 static void release_fs_lock(void);
 static int valid_pointer(void* provided_pointer);
+static int valid_arg(void* arg_address);
 static int get_user (const uint8_t *uaddr);
-static bool put_user (uint8_t *udst, uint8_t byte);
+//static bool put_user (uint8_t *udst, uint8_t byte);
 
 void sys_halt (void);
 void sys_exit(int status);
@@ -34,6 +35,8 @@ int sys_write (int fd, char *buffer, unsigned size);
 int sys_open(const char *file);
 bool sys_create(const char *file, unsigned initial_size);
 bool sys_remove(const char *file);
+int sys_read(int fd, void *buffer, unsigned size);
+int sys_filesize(int fd);
 
 void syscall_init(void)
 {
@@ -54,7 +57,7 @@ syscall_handler(struct intr_frame *f UNUSED)
     int arg0 = *(usp+1);
     int arg1 = *(usp+2);;
     int arg2 = *(usp+3);;
-    int arg3 = *(usp+4);;
+    //int arg3 = *(usp+4);;
 
     switch(call_no) {
         case SYS_HALT:
@@ -67,7 +70,7 @@ syscall_handler(struct intr_frame *f UNUSED)
             sys_exit(arg0);
             break;
         case SYS_EXEC:
-            if(!valid_pointer(arg0) || !valid_arg(usp+1)){
+            if(!valid_pointer((void*) arg0) || !valid_arg((void*) usp+1)){
                 sys_exit(-1);
             }
             f->eax = sys_exec((char*) arg0);
@@ -75,37 +78,37 @@ syscall_handler(struct intr_frame *f UNUSED)
         case SYS_WAIT:
             break;
         case SYS_CREATE:
-            if(!valid_pointer(arg0) || !valid_arg(usp+2)){
+            if(!valid_pointer((void*) arg0) || !valid_arg((void*) usp+2)){
                 sys_exit(-1);
             }
             f->eax = sys_create((char *) arg0, (int) arg1);
             break;
         case SYS_REMOVE:
-            if(!valid_pointer(arg0) || !valid_arg(usp+1)){
+            if(!valid_pointer((void*) arg0) || !valid_arg((void*) usp+1)){
                 sys_exit(-1);
             }
             f->eax = sys_remove((char *) arg0);
             break;
         case SYS_OPEN:
-            if(!valid_pointer(arg0) || !valid_arg(usp+1)){
+            if(!valid_pointer((void*) arg0) || !valid_arg((void*) usp+1)){
                 sys_exit(-1);
             }
             f->eax = sys_open((char*) arg0);
             break;
         case SYS_FILESIZE:
-            if(!valid_arg(usp+1)){
+            if(!valid_arg((void*) usp+1)){
                 sys_exit(-1);
             }
             f->eax = sys_filesize((int) arg0);
             break;
         case SYS_READ:
-            if(!valid_pointer(arg1) || !valid_arg(usp+3)){
+            if(!valid_pointer((void*) arg1) || !valid_arg((void*) usp+3)){
                 sys_exit(-1);
             }
             f->eax = sys_read((int) arg0, (char*) arg1, (unsigned) arg2);
             break;
         case SYS_WRITE:
-            if(!valid_pointer(arg1) || !valid_arg(usp+3)){
+            if(!valid_pointer((void*) arg1) || !valid_arg((void*) usp+3)){
                 sys_exit(-1);
             }
             f->eax = sys_write((int) arg0, (char*) arg1, (unsigned) arg2);
@@ -400,7 +403,7 @@ int valid_pointer(void* provided_pointer){
 }
 
 int valid_arg(void* arg_address){
-    if(arg_address >= 0xC0000000){
+    if(arg_address >= (void*) 0xC0000000){
         return 0;
     }
     return 1;
@@ -417,10 +420,12 @@ static int get_user (const uint8_t *uaddr)
        : "=&a" (result) : "m" (*uaddr));
   return result;
 }
- 
+
+
 /* Writes BYTE to user address UDST.
    UDST must be below PHYS_BASE.
    Returns true if successful, false if a segfault occurred. */
+   /*
 static bool put_user (uint8_t *udst, uint8_t byte)
 {
   int error_code;
@@ -428,3 +433,4 @@ static bool put_user (uint8_t *udst, uint8_t byte)
        : "=&a" (error_code), "=m" (*udst) : "q" (byte));
   return error_code != -1;
 }
+*/
