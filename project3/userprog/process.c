@@ -173,8 +173,6 @@ process_wait(tid_t child_tid UNUSED)
 
     return exit_status;
 
-
-
 }
 
 /* Free the current process's resources. */
@@ -198,6 +196,11 @@ process_exit(void)
         cur->pagedir = NULL;
         pagedir_activate(NULL);
         pagedir_destroy(pd);
+    }
+
+    if(cur->file_executable) {
+        file_allow_write(cur->file_executable);
+        file_close(cur->file_executable);
     }
 }
 
@@ -387,12 +390,14 @@ load(const cmd_token_info *cur_cmd_info, void(**eip) (void), void **esp)
 
     /* Start address. */
     *eip = (void (*)(void))ehdr.e_entry;
+    file_deny_write(file);
+    thread_current()->file_executable = file;
 
     success = true;
 
 done:
     /* We arrive here whether the load is successful or not. */
-    file_close(file);
+    //file_close(file);
     return success;
 }
 

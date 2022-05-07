@@ -51,6 +51,8 @@ void syscall_init(void)
 static void
 syscall_handler(struct intr_frame *f UNUSED)
 {
+    
+
     //Make sure stack pointer is valid
     if(!valid_pointer(f->esp)){
          sys_exit(-1);
@@ -62,6 +64,7 @@ syscall_handler(struct intr_frame *f UNUSED)
     int arg1 = *(usp+2);;
     int arg2 = *(usp+3);;
     //int arg3 = *(usp+4);;
+    //printf("sys_call 0x%X\n", call_no);
 
     switch(call_no) {
         case SYS_HALT:
