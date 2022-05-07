@@ -98,16 +98,24 @@ struct thread {
     /* Owned by userprog/process.c. */
     uint32_t *pagedir; /* Page directory. */
 
-    int exit_status;     //Holds exit status of a thread as a child so my parent can reap it
+    int exit_status;            //Holds exit status of a thread as a child so my parent can reap it
+    bool completed_executing;   //Signals are process has already called sys_exit and might be waiting
+    bool already_waiting;       //Signals someone has already called wait on the tid
 
-    //Blocking the kernel from making exit status before thread exits correctly
-    struct semaphore exit_block_on_child;
-    struct semaphore exit_block_on_parent;
+    //Semaphores between myself and parent
+    struct semaphore myself_wait_for_parent_exit;
+    struct semaphore parent_wait_for_my_exit;
+
+    //Semaphores between myself and children
+    struct semaphore myself_wait_for_child_exit;
+    struct semaphore child_wait_for_my_exit;
+
+    //Blocking the parent user process for child to register
+    struct semaphore exec_wait_on_child_register;
 
     process_control_block pcb;
 
-    //Blocking the parent user process for child to finish
-    struct semaphore exec_wait_on_child;
+    
 #endif
 
     /* Owned by thread.c. */

@@ -13,8 +13,9 @@ typedef struct process_control_block{
     tid_t tid;
     tid_t parent_tid;
     int child_exec_fail;
-    struct file* file_descriptor_table[MAX_NUMBER_OF_FILES_IN_PROCESS];
+
     //Will contain the number of open files. 0 will mean that index 0 1 are used (stdin/out)
+    struct file* file_descriptor_table[MAX_NUMBER_OF_FILES_IN_PROCESS];
     int number_open_files;
 } process_control_block;
 

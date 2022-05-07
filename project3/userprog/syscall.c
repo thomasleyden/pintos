@@ -18,6 +18,10 @@
 #define _DEBUG_PRINTF(...) /* do nothing */
 #endif
 
+//Wait Exec and Exit Rules:
+//Children can NOT exit if parent is alive and waiting
+//Assuming that sys_calls are atomic by nature. Other threads can't all INT 30
+
 static void syscall_handler(struct intr_frame *);
 static struct lock file_lock;
 static void aquire_fs_lock(void);
@@ -76,6 +80,10 @@ syscall_handler(struct intr_frame *f UNUSED)
             f->eax = sys_exec((char*) arg0);
             break;
         case SYS_WAIT:
+            if(!valid_arg((void*) usp+1)){
+                sys_exit(-1);
+            }
+            f->eax = sys_wait((tid_t) arg0);
             break;
         case SYS_CREATE:
             if(!valid_pointer((void*) arg0) || !valid_arg((void*) usp+2)){
@@ -132,6 +140,28 @@ void sys_halt (void){
     shutdown_power_off();
 }
 
+int has_children(struct thread* t){
+    if(list_size(&t->child_wait_for_my_exit.waiters) > 0){
+        return true;
+    }
+    return false;
+}
+
+int num_children(struct thread* t){
+    int numChildren = list_size(&t->child_wait_for_my_exit.waiters);
+    return numChildren;
+}
+
+bool has_parent(struct thread* t){
+    struct thread *par;
+    if(t->pcb.parent_tid != 1){
+        if(get_thread_tcb(t->pcb.parent_tid, &par) != -1){
+            return true;
+        }
+    }
+    return false;
+}
+
 void sys_exit(int status){
     /*
     System Call: void exit (int status)
@@ -142,20 +172,38 @@ void sys_exit(int status){
 
     struct thread *cur = thread_current();
     struct thread *par;
+
     printf("%s: exit(%d)\n", cur->name, status);
     cur->exit_status = status;
+    cur->completed_executing = true;
 
-    //If you have a parent thread from exec, wake them up!
-    if(cur->pcb.parent_tid != 1){
+    //------Myself and Parent Sync------
+    if( has_parent(cur) ){
+        //Exiting has a child process. Possible for parent to call wait
         get_thread_tcb(cur->pcb.parent_tid, &par);
-        sema_up(&(par->exec_wait_on_child));
-    } else { //You have the kernel waiting on you
-        //Wake up the parent to get status
-        sema_up(&cur->exit_block_on_parent);
-        //Wait till parents gets status to cleanup
-        sema_down(&cur->exit_block_on_child);
-    }   
-        
+        sema_up(&cur->parent_wait_for_my_exit); //Exit status available to parent
+    } else {    
+        //Waiting for Kernel which is the parent in this case
+        sema_up(&cur->parent_wait_for_my_exit);
+        sema_down(&cur->myself_wait_for_parent_exit);
+    }
+
+    //------Myself and Child Sync------
+    if( has_children(cur) ){
+        for(int i = 0; i < num_children(cur); i++){
+            //Let all children exit
+            sema_up(&cur->child_wait_for_my_exit);
+            sema_down(&cur->myself_wait_for_child_exit);
+        }
+    } else {
+
+    }
+
+    if( has_parent(cur) ){
+        sema_down(&par->child_wait_for_my_exit);
+        sema_up(&par->myself_wait_for_child_exit);
+    }
+    
     thread_exit();
 }
 
@@ -174,8 +222,8 @@ int sys_exec (const char *cmd_line){
        return -1;
    }
    process_tid = process_execute(cmd_line);
-   //Wait on the child process to down your semaphore
-   sema_down(&thread_current()->exec_wait_on_child);
+   //Wait on the child process to down your semaphore. This means child is running :)
+   sema_down(&thread_current()->exec_wait_on_child_register);
    if(thread_current()->pcb.child_exec_fail == 1){
        return -1;
    }
@@ -218,7 +266,28 @@ int sys_wait(tid_t tid){
         Implementing this system call requires considerably more work than any of the rest.
 
     */
-   return -1;
+
+    struct thread *cur = thread_current();
+    struct thread *child;
+
+    //Check if tid is a valid child
+    if(get_thread_tcb(tid, &child) == -1){
+        return -1;
+    }
+    //Make sure the child's parent is you
+    if(child->pcb.parent_tid != cur->tid){
+        return -1;
+    }
+    //Make sure someone has already called wait
+    if(child->already_waiting){
+        return -1;
+    }
+    child->already_waiting = true;
+    //Now we can wait on the child to complete if it hasn't already
+    if(!child->completed_executing){
+        sema_down(&child->parent_wait_for_my_exit);
+    }
+    return child->exit_status;
 
 }
 
@@ -240,25 +309,27 @@ int sys_write (int fd, char *buffer, unsigned size) {
         both human readers and our grading scripts.
     */
 
-   struct file* write_file;
-   int bytes_write;
+    struct file* write_file;
+    int bytes_write;
 
-   if(fd == 1){
+    if(fd == 1){
        putbuf(buffer, size);
        return size;
-   } else {
-       //Make sure fd is valid
-       write_file = thread_current()->pcb.file_descriptor_table[fd];
-       if(write_file == NULL){
-             return -1;
+    } else if(fd > 0 && fd < MAX_NUMBER_OF_FILES_IN_PROCESS){
+        //Make sure fd is valid
+        write_file = thread_current()->pcb.file_descriptor_table[fd];
+        if(write_file == NULL){
+            return -1;
         }
-       //Write to the fd
-       aquire_fs_lock();
-       bytes_write = file_write(write_file, buffer, size);
-       release_fs_lock();
-       //Return write size
-   }
-   return bytes_write;
+        //Write to the fd
+        aquire_fs_lock();
+        bytes_write = file_write(write_file, buffer, size);
+        release_fs_lock();
+        //Return write size
+    } else {
+        return -1;
+    }
+    return bytes_write;
 
 }
 

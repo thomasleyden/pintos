@@ -101,9 +101,11 @@ process_execute(const char *cmd_string)
 static void
 start_process(void *cur_cmd_info)
 {
+    struct thread *cur = thread_current();
+    struct thread *par;
+
     struct intr_frame if_;
     bool success;
-    struct thread *par;
 
     log(L_TRACE, "start_process()");
 
@@ -113,18 +115,24 @@ start_process(void *cur_cmd_info)
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load(cur_cmd_info, &if_.eip, &if_.esp);
-
     /* If load failed, quit. */
     palloc_free_page(cur_cmd_info);
     if (!success) {
+        //printf("Error in starting process\n");
         //Clear the parent semaphore because we didn't load right
         if(thread_current()->pcb.parent_tid != 1){
             get_thread_tcb(thread_current()->pcb.parent_tid, &par);
             par->pcb.child_exec_fail = 1;
-            sema_up(&(par->exec_wait_on_child));
+            sema_up(&(par->exec_wait_on_child_register));
         } 
         thread_exit();
     }
+
+    if(thread_current()->pcb.parent_tid != 1){
+        get_thread_tcb(thread_current()->pcb.parent_tid, &par);
+        par->pcb.child_exec_fail = 0;
+        sema_up(&(par->exec_wait_on_child_register));
+    } 
 
     /* Start the user process by simulating a return from an
      * interrupt, implemented by intr_exit (in
@@ -157,11 +165,11 @@ process_wait(tid_t child_tid UNUSED)
     }
 
     //Block until child tells us he have the exit status!
-    sema_down(&child_tcb->exit_block_on_parent);
+    sema_down(&child_tcb->parent_wait_for_my_exit);
 
     exit_status = child_tcb->exit_status;
     //We got the exit status. Child can not cleanup
-    sema_up(&child_tcb->exit_block_on_child);
+    sema_up(&child_tcb->myself_wait_for_parent_exit);
 
     return exit_status;
 

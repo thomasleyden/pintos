@@ -214,9 +214,11 @@ thread_create(const char *name, int priority,
     sf->ebp = 0;
 
     /* Initilize exit semaphore */
-    sema_init(&t->exit_block_on_child, 0);
-    sema_init(&t->exit_block_on_parent, 0);
-    sema_init(&t->exec_wait_on_child, 0);
+    sema_init(&t->myself_wait_for_parent_exit, 0);
+    sema_init(&t->parent_wait_for_my_exit, 0);
+    sema_init(&t->myself_wait_for_child_exit, 0);
+    sema_init(&t->child_wait_for_my_exit, 0);
+    sema_init(&t->exec_wait_on_child_register, 0);
     
     /* Add to run queue. */
     thread_unblock(t);
@@ -610,7 +612,6 @@ uint32_t get_thread_tcb(tid_t tid, struct thread** pp_thread){
             return 1;
         }
     }
-    printf("Can't find thread tcb\n");
     return -1;
 }
 
