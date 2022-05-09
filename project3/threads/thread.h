@@ -104,7 +104,7 @@ struct thread {
     bool completed_executing;   //Signals are process has already called sys_exit and might be waiting
     bool already_waiting;       //Signals someone has already called wait on the tid
 
-    struct file* file_executable;
+    struct file* file_executable; //The file which is associate with this thread executable
 
     //Semaphores between myself and parent
     struct semaphore myself_wait_for_parent_exit;

@@ -8,35 +8,70 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@utexas.edu>
-FirstName LastName <email@utexas.edu>
+Thomas Leyden <thomasleyden@utexas.edu>
 
 ---- PRELIMINARIES ----
 
->> If you have any preliminary comments on your submission, notes for the
->> TAs, or extra credit, please give them here.
->> Please cite any offline or online sources you consulted while
->> preparing your submission, other than the Pintos documentation, course
->> text, lecture notes, and course staff.
+All the test cases are passing, expect the args-dbl-space.
+If you run this case test individually on my machine is runs just fine.
+I was never able to understand why this was.
+
+I had 0 help on this assignment from Jason Castillo. We were initially hoping to work together.
+However after completing this assignment, he delivered a total of 0 lines of code.
+Happy to comment about this if there are any questions.
 
                            ARGUMENT PASSING
                            ================
 
 ---- DATA STRUCTURES ----
 
->> A1: Copy here the declaration of each new or changed `struct' or
->> `struct' member, global or static variable, `typedef', or
->> enumeration.  Identify the purpose of each in 25 words or less.
+int exit_status;            //Holds exit status of a thread as a child so my parent can reap it'
+
+//Flag variables which signal special events
+bool completed_executing;       //Signals are process has already called sys_exit and might be waiting
+bool already_waiting;           //Signals someone has already called wait on the tid
+
+struct file* file_executable;   //The file which is associate with this thread executable
+
+//Semaphores between myself and parent
+struct semaphore myself_wait_for_parent_exit;
+struct semaphore parent_wait_for_my_exit;
+
+//Semaphores between myself and children
+struct semaphore myself_wait_for_child_exit;
+struct semaphore child_wait_for_my_exit;
+
+//Blocking the parent user process for child to register
+struct semaphore exec_wait_on_child_register;
+
+process_control_block pcb;      //Process control block
+
+typedef struct process_control_block{
+    tid_t tid;                  //tid associated with the process
+    tid_t parent_tid;           //parent associated with this process
+    int child_exec_fail;        //Flag signalling that a exec called failed
+
+    //Will contain the number of open files. 0 will mean that index 0 1 are used (stdin/out)
+    struct file* file_descriptor_table[MAX_NUMBER_OF_FILES_IN_PROCESS]; //Self explanitory. But holds all the open fds of this process
+    int number_open_files;  //Signals the number of valid entries in the file_descriptor_table
+} process_control_block;
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
+I parsed the arguments but going through the character array element by element.
+Upon finding a "space" character, I added the previous string into a structure which 
+contained the arguments.
+
+I avoided overflowing the stack page but correctly populating the stack in setup_stack()
 
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
+strtok_r is prefered due to its Reentrant nature. Pintos has interrupts which can occur,
+which leads to needing to use strtok_r instead of strtok()
 
                              SYSTEM CALLS
                              ============
@@ -50,11 +85,16 @@ FirstName LastName <email@utexas.edu>
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+File descriptors are associated with a single process. They are contained in the
+thread structure associated with a thread. The FD is simply the index into an array which
+contains the file pointer
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+I pretty much validate every pointer passed in from user space.
+If anything seg_faults, or is out of bounds. It is simply thrown out.
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -86,6 +126,8 @@ FirstName LastName <email@utexas.edu>
 >> fails, so it cannot return before the new executable has completed
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
+I use a semaphore between the parent and possible child process. When exec is called,
+a failure is signaled so that the parent can handle it.
 
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
@@ -93,17 +135,23 @@ FirstName LastName <email@utexas.edu>
 >> that all resources are freed in each case?  How about when P
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
+This is special in my case. I have it so children simply can't completely exit
+until the parents calls exit. So pretty much when a parent goes to exit, it first
+gets all the exit statuses of children because they are assured to be available.
 
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
+Simplicity
 
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
+Disadvantage is that processes can only have a set number of fds
 
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+Not changes, tid_t and pid_t are the same in my program
 
                            SURVEY QUESTIONS
                            ================
@@ -116,15 +164,20 @@ the semester.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
+It was a great assignment, I loved working on it
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+Sys-calls there eye opening for me. Let me know what user and kernel space can interact
 
 >> Is there some particular fact or hint we should give students in
 >> future semesters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
+No comment
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future semesters or the remaining projects?
+No comment
 
 >> Any other comments?
+None
