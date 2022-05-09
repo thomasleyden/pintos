@@ -197,11 +197,6 @@ process_exit(void)
         pagedir_activate(NULL);
         pagedir_destroy(pd);
     }
-
-    if(cur->file_executable) {
-        file_allow_write(cur->file_executable);
-        file_close(cur->file_executable);
-    }
 }
 
 /* Sets up the CPU for running user code in the current
@@ -391,8 +386,8 @@ load(const cmd_token_info *cur_cmd_info, void(**eip) (void), void **esp)
     /* Start address. */
     *eip = (void (*)(void))ehdr.e_entry;
     file_deny_write(file);
+    //printf("----Lock File\n");
     thread_current()->file_executable = file;
-
     success = true;
 
 done:

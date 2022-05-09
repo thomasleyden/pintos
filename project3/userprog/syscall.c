@@ -125,12 +125,30 @@ syscall_handler(struct intr_frame *f UNUSED)
             f->eax = sys_write((int) arg0, (char*) arg1, (unsigned) arg2);
             break;
         case SYS_SEEK:
+            if(!valid_arg((void*) usp+2)){
+                sys_exit(-1);
+            }
+            sys_seek((int) arg0, (unsigned) arg1);
             break;
         case SYS_TELL:
             break;
         case SYS_CLOSE:
             break;
     }
+}
+
+void sys_seek(int fd, unsigned position){
+    /* 
+    System Call: void seek (int fd, unsigned position)
+        Changes the next byte to be read or written in open file fd to position, expressed in bytes from the beginning
+        of the file. (Thus, a position of 0 is the file's start.) A seek past the current end of a file is not an error.
+        A later read obtains 0 bytes, indicating end of file. A later write extends the file, filling any unwritten gap
+        with zeros. (However, in Pintos files have a fixed length until project 4 is complete, so writes past end of
+        file will return an error.) These semantics are implemented in the file system and do not require any special
+        effort in system call implementation.
+    */
+
+    file_seek(thread_current()->pcb.file_descriptor_table[fd], position);
 }
 
 void sys_halt (void){
@@ -180,6 +198,13 @@ void sys_exit(int status){
     cur->exit_status = status;
     cur->completed_executing = true;
 
+    //Cleanup of resources
+    //printf("---Pre Clean\n");
+    if(cur->file_executable) {
+        file_allow_write(cur->file_executable);
+        file_close(cur->file_executable);
+    }
+
     //------Myself and Parent Sync------
     if( has_parent(cur) ){
         //Exiting has a child process. Possible for parent to call wait
@@ -198,15 +223,15 @@ void sys_exit(int status){
             sema_up(&cur->child_wait_for_my_exit);
             sema_down(&cur->myself_wait_for_child_exit);
         }
-    } else {
-
     }
+    
 
+    
     if( has_parent(cur) ){
         sema_down(&par->child_wait_for_my_exit);
         sema_up(&par->myself_wait_for_child_exit);
     }
-    
+
     thread_exit();
 }
 
